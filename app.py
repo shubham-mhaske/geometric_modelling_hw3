@@ -8,6 +8,8 @@ from io import StringIO
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
+
+
 from geometry import (
     preset_surfaces, random_grid, uniform_knot_vector, nonuniform_knot_vector,
     eval_surface, differential, param_domain, export_spec, import_spec
@@ -18,10 +20,7 @@ def main():
                        layout="wide")
 
     # Initialize session state
-    if 'selected_point' not in st.session_state:
-        st.session_state.selected_point = None
-    if 'last_click_data' not in st.session_state:
-        st.session_state.last_click_data = None
+
     if 'surface_spec' not in st.session_state:
         st.session_state.surface_spec = None
 
@@ -200,9 +199,9 @@ def main():
     st.subheader("Sampling & Analysis")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1)
+        res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1, key="res_u_main")
     with c2:
-        res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1)
+        res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1, key="res_v_main")
     with c3:
         hstep = st.number_input("Finite difference step (relative)", value=1e-3, format="%.1e")
     with c4:
@@ -213,8 +212,8 @@ def main():
     u_dom = param_domain(spec["kind"], spec["p"], spec["U"] or [0,0,1,1])
     v_dom = param_domain(spec["kind"], spec["q"], spec["V"] or [0,0,1,1])
 
-    uc = st.slider("Pick u", float(u_dom[0]), float(u_dom[1]), float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100)
-    vc = st.slider("Pick v", float(v_dom[0]), float(v_dom[1]), float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100)
+    uc = st.slider("Pick u", float(u_dom[0]), float(u_dom[1]), float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100, key="uc_main")
+    vc = st.slider("Pick v", float(v_dom[0]), float(v_dom[1]), float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100, key="vc_main")
 
     # ---------- Evaluate surface grid and curvature ----------
     u_vals = np.linspace(u_dom[0], u_dom[1], int(res_u))
@@ -250,59 +249,7 @@ def main():
     # Clean up NaN/Inf for better visualization
     color_data = np.nan_to_num(color_data, nan=0.0, posinf=1e3, neginf=-1e3)
 
-    # ---------- Interactive Control Point Editor ----------
-    if 'selected_point' not in st.session_state:
-        st.session_state.selected_point = None
-        st.session_state.last_click_data = None
 
-    # Create columns for the editor controls
-    edit_col1, edit_col2 = st.columns([2,1])
-    with edit_col1:
-        st.write("**Control Point Editor**")
-        st.caption("Click a control point (red dot) in the plot to edit its position")
-    with edit_col2:
-        clear = st.button("Clear Selection")
-        if clear:
-            st.session_state.selected_point = None
-
-    # Store click data in session state to handle Streamlit reruns
-    if 'last_click_data' in st.session_state and st.session_state.last_click_data:
-        click_data = st.session_state.last_click_data
-        try:
-            point_idx = click_data['points'][0]['pointIndex']
-            i = point_idx // n  # Convert flat index to i,j
-            j = point_idx % n
-            st.session_state.selected_point = (i, j)
-        except (KeyError, IndexError, TypeError):
-            pass
-        st.session_state.last_click_data = None  # Clear after use
-
-    # Editor inputs for selected point
-    if st.session_state.selected_point is not None:
-        i, j = st.session_state.selected_point
-        cp = spec["grid"].points[i*n + j]
-        
-        # Create a container for the editor
-        editor = st.container()
-        with editor:
-            st.write(f"**Editing Control Point ({i},{j})**")
-            cols = st.columns(3)
-            with cols[0]:
-                new_x = st.number_input("X", value=float(cp.p.x), step=0.1, format="%.2f", key=f"x_{i}_{j}")
-                cp.p.x = new_x
-            with cols[1]:
-                new_y = st.number_input("Y", value=float(cp.p.y), step=0.1, format="%.2f", key=f"y_{i}_{j}")
-                cp.p.y = new_y
-            with cols[2]:
-                new_z = st.number_input("Z", value=float(cp.p.z), step=0.1, format="%.2f", key=f"z_{i}_{j}")
-                cp.p.z = new_z
-            
-            if kind == "NURBS":
-                new_w = st.number_input("Weight", value=float(cp.w), 
-                                      min_value=0.1, step=0.1, format="%.2f", 
-                                      key=f"w_{i}_{j}",
-                                      help="NURBS weight affects the influence of this control point")
-                cp.w = new_w
 
     # ---------- Plotly figure ----------
     fig = go.Figure()
@@ -349,9 +296,7 @@ def main():
     for i in range(m):
         for j in range(n):
             hover_pts.append(f"i={i}, j={j}, w={W[i,j]:.3f}")
-            # Highlight selected point
-            is_selected = st.session_state.selected_point == (i,j)
-            marker_colors.append('yellow' if is_selected else 'crimson')
+            marker_colors.append('crimson')
 
     # Add control points with click events
     points = go.Scatter3d(
@@ -363,10 +308,7 @@ def main():
     )
     fig.add_trace(points)
 
-    # Handle control point clicks
-    fig.update_layout(clickmode='event')
-    if st.session_state.selected_point is None:
-        st.caption("👆 Click a control point (red dot) to edit its position")
+
 
     # poly-lines along u (blue) and v (orange) with single legend entries
     for j in range(n):
@@ -416,8 +358,8 @@ def main():
         
         with col1:
             # Display plot and capture click events
-            clicked = st.plotly_chart(
-                fig, 
+            st.plotly_chart(
+                fig,
                 use_container_width=True,
                 config={
                     'displayModeBar': True,
@@ -426,44 +368,9 @@ def main():
             )
         
         with col2:
-            # Control point editor in right column
-            if st.session_state.selected_point is not None:
-                i, j = st.session_state.selected_point
-                cp = spec["grid"].points[i*n + j]
-                
-                st.write(f"**Control Point ({i},{j})**")
-                new_x = st.number_input("X", value=float(cp.p.x), step=0.1, format="%.2f")
-                new_y = st.number_input("Y", value=float(cp.p.y), step=0.1, format="%.2f")
-                new_z = st.number_input("Z", value=float(cp.p.z), step=0.1, format="%.2f")
-                
-                # Update point
-                cp.p.x = new_x
-                cp.p.y = new_y
-                cp.p.z = new_z
-                
-                if kind == "NURBS":
-                    new_w = st.number_input("Weight", value=float(cp.w), 
-                                          min_value=0.1, step=0.1, format="%.2f")
-                    cp.w = new_w
-                
-                if st.button("Clear Selection"):
-                    st.session_state.selected_point = None
-                    st.rerun()
-            else:
-                st.info("Click any control point (red dot) to edit")
+            st.info("Control point editing is disabled.")
 
-    # Handle click events without forcing rerun
-    if clicked and clicked.get("points"):
-        try:
-            point_data = clicked["points"][0]
-            point_index = point_data.get("pointIndex", None)
-            if point_index is not None:
-                i = point_index // n
-                j = point_index % n
-                if 0 <= i < m and 0 <= j < n:  # Validate indices
-                    st.session_state.selected_point = (i, j)
-        except (KeyError, IndexError, AttributeError):
-            pass  # Ignore invalid click data
+
 
     # ---------- Analysis Tab Content ----------
     with tab2:
@@ -472,13 +379,13 @@ def main():
         # Parameter selection
         c1, c2 = st.columns(2)
         with c1:
-            res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1)
+            res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1, key="res_u_analysis")
             uc = st.slider("Pick u", float(u_dom[0]), float(u_dom[1]), 
-                          float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100)
+                          float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100, key="uc_analysis")
         with c2:
-            res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1)
+            res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1, key="res_v_analysis")
             vc = st.slider("Pick v", float(v_dom[0]), float(v_dom[1]), 
-                          float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100)
+                          float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100, key="vc_analysis")
         
         # Curvature analysis at current point
         E,F,G,e,f,g = diff["E"], diff["F"], diff["G"], diff["e"], diff["f"], diff["g"]
