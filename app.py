@@ -1,4 +1,3 @@
-
 """
 app.py — Streamlit UI for the Tensor‑Product Surface Lab
 Run with: streamlit run app.py
@@ -16,20 +15,25 @@ from geometry import (
 )
 
 def main():
-    st.set_page_config(page_title="Tensor‑Product Surface Lab (Bezier / B‑spline / NURBS)",
-                       layout="wide")
-
-    # Initialize session state
-
-    if 'surface_spec' not in st.session_state:
-        st.session_state.surface_spec = None
-
-    # Page config
+    # Page config - MUST be the first Streamlit command, and only called ONCE
     st.set_page_config(
         page_title="Tensor‑Product Surface Lab",
         layout="wide",
         initial_sidebar_state="expanded"
     )
+
+    # Load presets
+    presets = preset_surfaces()
+
+    # Initialize session state ONCE with a default preset
+    if 'surface_spec' not in st.session_state:
+        st.session_state.surface_spec = presets["Saddle (Bezier)"].copy()
+
+    # Callback to update state when preset is changed
+    def update_spec_from_preset():
+        # Loads the selected preset into session state
+        preset_key = st.session_state.get("preset_selector", "Saddle (Bezier)")
+        st.session_state.surface_spec = presets[preset_key].copy()
 
     # Title in a container with custom styling
     with st.container():
@@ -45,10 +49,30 @@ def main():
     # ---------- Sidebar Controls ----------
     with st.sidebar:
         st.header("Surface Setup")
-        presets = preset_surfaces()
-        preset_name = st.selectbox("Preset surface", list(presets.keys()), help="Choose a starting surface specification to edit")
-        spec = presets[preset_name]
-        kind = st.selectbox("Surface type", ["Bezier","B-spline","NURBS"], index=["Bezier","B-spline","NURBS"].index(spec["kind"]), help="Switch between analytic/basis representations")
+        
+        # Use on_change to update the session state when a new preset is selected
+        preset_name = st.selectbox(
+            "Preset surface", 
+            list(presets.keys()),
+            key="preset_selector", # Add a key for the callback
+            on_change=update_spec_from_preset, # Add the callback
+            help="Choose a starting surface specification to edit"
+        )
+        
+        # --- SESSION STATE FIX ---
+        # Load the CURRENT spec from session_state, not the preset list
+        spec = st.session_state.surface_spec
+        
+        # Get the index for the selectbox from the *current* spec's kind
+        kind_options = ["Bezier", "B-spline", "NURBS"]
+        kind_index = kind_options.index(spec["kind"]) if spec["kind"] in kind_options else 0
+        
+        kind = st.selectbox(
+            "Surface type", 
+            kind_options, 
+            index=kind_index, 
+            help="Switch between analytic/basis representations"
+        )
         p = st.slider("Degree p (u-direction)", 1, 5, int(spec["p"]), help="Polynomial degree in u (lower = smoother control)")
         q = st.slider("Degree q (v-direction)", 1, 5, int(spec["q"]), help="Polynomial degree in v")
 
@@ -69,14 +93,18 @@ def main():
                     for cp in g.points:
                         cp.w *= w_mean
                 spec["grid"] = g
+                # --- SESSION STATE FIX ---
+                # Save the new grid back to session state immediately
+                st.session_state.surface_spec = spec.copy()
+                st.rerun() # Rerun to show the change
 
         # Knot vectors
         with st.expander("Knot Vectors (B‑spline / NURBS)", expanded=False):
             nonuni = st.checkbox("Use non‑uniform knots", value=True, help="Choose non-uniform knot spacing to see localized features")
             if kind == "Bezier":
-                U = [0,0,1,1]
-                V = [0,0,1,1]
-                st.info("Bézier surfaces use fixed knot vectors [0,0,1,1]")
+                U = uniform_knot_vector(int(m), int(p)) # Use uniform for consistency
+                V = uniform_knot_vector(int(n), int(q))
+                st.info("Bézier surfaces use fixed (clamped) knot vectors.")
             else:
                 if nonuni:
                     U = nonuniform_knot_vector(int(m), int(p), seed=None)  # Random knots each time
@@ -140,7 +168,7 @@ def main():
         with st.expander("Import / Export", expanded=False):
             # Clear upload state if requested
             if st.button("Clear Imported Surface"):
-                st.session_state.surface_spec = None
+                st.session_state.surface_spec = presets["Saddle (Bezier)"].copy() # Reset to default
                 st.rerun()
             
             uploaded = st.file_uploader(
@@ -157,15 +185,11 @@ def main():
                     # Validate imported spec
                     if all(key in imported_spec for key in ["kind", "p", "q", "grid"]):
                         spec = imported_spec
-                        kind = spec["kind"]
-                        p = spec["p"]
-                        q = spec["q"]
-                        m = spec["grid"].m
-                        n = spec["grid"].n
-                        U = spec.get("U") or U
-                        V = spec.get("V") or V
+                        # --- SESSION STATE FIX ---
+                        # Save the imported spec to session state and rerun
                         st.session_state.surface_spec = spec
                         st.success("✅ Surface imported successfully!")
+                        st.rerun() # Rerun to load the new spec into all widgets
                     else:
                         st.error("Invalid surface specification format")
                 except json.JSONDecodeError:
@@ -179,9 +203,10 @@ def main():
         spec["U"] = U; spec["V"] = V
         if spec["grid"].m != int(m) or spec["grid"].n != int(n):
             # Resize by regenerating random grid to match new topology
+            st.warning("Grid size changed. Regenerating control net.")
             spec["grid"] = random_grid(int(m), int(n), amp=float(amp), seed=None, rational=(kind=="NURBS"))
 
-        # Cache the current spec in session state
+        # Cache the current spec back into session state
         st.session_state.surface_spec = spec.copy()
         
         # Export with unique filename based on content
@@ -379,17 +404,20 @@ def main():
         # Parameter selection
         c1, c2 = st.columns(2)
         with c1:
-            res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1, key="res_u_analysis")
-            uc = st.slider("Pick u", float(u_dom[0]), float(u_dom[1]), 
-                          float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100, key="uc_analysis")
+            res_u_analysis = st.slider("Surface resolution (u)", 10, 100, 40, 1, key="res_u_analysis")
+            uc_analysis = st.slider("Pick u", float(u_dom[0]), float(u_dom[1]), 
+                                  float(sum(u_dom)/2), step=(u_dom[1]-u_dom[0])/100, key="uc_analysis")
         with c2:
-            res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1, key="res_v_analysis")
-            vc = st.slider("Pick v", float(v_dom[0]), float(v_dom[1]), 
-                          float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100, key="vc_analysis")
+            res_v_analysis = st.slider("Surface resolution (v)", 10, 100, 40, 1, key="res_v_analysis")
+            vc_analysis = st.slider("Pick v", float(v_dom[0]), float(v_dom[1]), 
+                                  float(sum(v_dom)/2), step=(v_dom[1]-v_dom[0])/100, key="vc_analysis")
+        
+        # Use the sliders from the Analysis tab to recalculate diff
+        diff_analysis = differential(spec, float(uc_analysis), float(vc_analysis), h=float(hstep))
         
         # Curvature analysis at current point
-        E,F,G,e,f,g = diff["E"], diff["F"], diff["G"], diff["e"], diff["f"], diff["g"]
-        K,H,k1,k2 = diff["K"], diff["H"], diff["k1"], diff["k2"]
+        E,F,G,e,f,g = diff_analysis["E"], diff_analysis["F"], diff_analysis["G"], diff_analysis["e"], diff_analysis["f"], diff_analysis["g"]
+        K,H,k1,k2 = diff_analysis["K"], diff_analysis["H"], diff_analysis["k1"], diff_analysis["k2"]
         
         st.write("**Analysis at Selected Point**")
         cols = st.columns(3)
@@ -424,4 +452,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
