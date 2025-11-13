@@ -336,14 +336,12 @@ def main():
                         V = v_knots  # Use the current knots if no changes or invalid
 
         # --- Sampling & Visualization Settings ---
+        # Hardcoded sampling parameters as requested.
+        res_u = 40
+        res_v = 40
+        hstep = 1e-3
+
         with st.expander("Sampling & Visualization"):
-            st.subheader("Sampling Parameters")
-            res_u = st.slider("Surface resolution (u)", 10, 100, 40, 1,
-                              help="Number of samples along the u-parameter for surface rendering.")
-            res_v = st.slider("Surface resolution (v)", 10, 100, 40, 1,
-                              help="Number of samples along the v-parameter for surface rendering.")
-            hstep = st.number_input("Finite difference step (h)", value=1e-3, format="%.1e",
-                                    help="Step size for numerical differentiation to calculate curvatures.")
             color_mode = st.selectbox("Surface coloring", ["Height", "Gaussian Curvature", "Mean Curvature"],
                                       help="Choose how the surface is colored.")
 

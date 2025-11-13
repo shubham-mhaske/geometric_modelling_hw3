@@ -527,6 +527,33 @@ def random_grid(m: int, n: int, amp: float = 1.0, seed: int = 0, rational: bool 
     return ControlGrid(m, n, pts)
 
 
+def cylinder_grid(radius: float = 1.0, height: float = 2.0) -> ControlGrid:
+    """Creates a control grid for a NURBS cylinder."""
+    m, n = 9, 2
+    w_corner = 1.0
+    w_mid = math.sqrt(2) / 2.0
+
+    base_pts_pos = [
+        Vec3(radius, 0, 0), Vec3(radius, radius, 0), Vec3(0, radius, 0),
+        Vec3(-radius, radius, 0), Vec3(-radius, 0, 0), Vec3(-radius, -radius, 0),
+        Vec3(0, -radius, 0), Vec3(radius, -radius, 0), Vec3(radius, 0, 0)
+    ]
+    weights = [w_corner, w_mid, w_corner, w_mid, w_corner, w_mid, w_corner, w_mid, w_corner]
+
+    pts = []
+    z_vals = [-height / 2.0, height / 2.0]
+    # Store in row-major order: outer loop is 'm' (u), inner loop is 'n' (v)
+    for i in range(m):
+        for j in range(n):
+            p_base = base_pts_pos[i]
+            z = z_vals[j]
+            p = Vec3(p_base.x, p_base.y, z)
+            w = weights[i]
+            pts.append(ControlPoint(p, w=w))
+
+    return ControlGrid(m, n, pts)
+
+
 def preset_surfaces() -> Dict[str, Dict[str, Any]]:
     """
     Returns a dictionary of pre-defined surface specifications.
@@ -534,6 +561,12 @@ def preset_surfaces() -> Dict[str, Dict[str, Any]]:
     This provides a set of interesting starting points for exploration.
     """
     return {
+        "Cylinder (NURBS)": {
+            "kind": "NURBS", "p": 2, "q": 1,
+            "grid": cylinder_grid(radius=1.5, height=3.0),
+            "U": [0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1],
+            "V": uniform_knot_vector(2, 1)
+        },
         "Saddle (Bezier)": {
             "kind": "Bezier", "p": 3, "q": 3,
             "grid": grid_from_zfunc(4, 4, lambda u, v: (u - 0.5) * (v - 0.5) * 4, scale=1.5),
